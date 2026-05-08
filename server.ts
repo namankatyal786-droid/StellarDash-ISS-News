@@ -64,75 +64,54 @@ app.get("/api/news", async (req, res) => {
   }
 });
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
-
 app.post("/api/chat", async (req, res) => {
   const { messages, context } = req.body;
   const hfToken = process.env.HF_TOKEN;
 
-  // If HF_TOKEN exists, try the requested Hugging Face router
-  if (hfToken && hfToken !== "MY_HF_TOKEN" && hfToken !== "") {
-    try {
-      const response = await fetch(
-        "https://router.huggingface.co/v1/chat/completions",
-        {
-          headers: {
-            Authorization: `Bearer ${hfToken}`,
-            "Content-Type": "application/json",
-          },
-          method: "POST",
-          body: JSON.stringify({
-            model: "meta-llama/Llama-3.2-1B-Instruct:novita",
-            messages: [
-              {
-                role: "system",
-                content: `You are Astra, a mission assistant. You ONLY answer based on the provided dashboard context. Do not use outside knowledge.
-                
-                DASHBOARD DATA:
-                ${JSON.stringify(context)}`
-              },
-              ...messages
-            ],
-            max_tokens: 500,
-          }),
-        }
-      );
-      const result = await response.json();
-      return res.json(result);
-    } catch (error) {
-      console.warn("HF Relay failed, falling back to Gemini...");
-    }
+  if (!hfToken || hfToken === "MY_HF_TOKEN" || hfToken === "") {
+    return res.status(401).json({ error: "Mission control communication error: HF_TOKEN is missing or invalid." });
   }
 
-  // Robust Fallback using Gemini (which is always available in this environment)
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
-    const prompt = `You are ASTRA, a high-fidelity mission assistant for the Stellaris Dashboard.
-    
-    STRICT OPERATIONAL DIRECTIVE:
-    1. You ONLY have access to the telemetry and broadcast data provided below.
-    2. If a user asks a question that CANNOT be answered using the provided data, you MUST state that the data is not available in the current relay.
-    3. Do NOT invent missions, astronauts, or locations.
-    4. Maintain a technical, slightly futuristic "mission control" tone.
-    5. Always provide specific numbers (latitude, velocity, etc.) if available.
-    
-    CURRENT MISSION TELEMETRY (JSON):
-    ${JSON.stringify(context, null, 2)}
-    
-    COMMUNICATION HISTORY:
-    ${messages.map((m: any) => `${m.role.toUpperCase()}: ${m.content}`).join("\n")}
-    
-    ASTRA RESPONSE:`;
+    const response = await fetch(
+      "https://router.huggingface.co/v1/chat/completions",
+      {
+        headers: {
+          Authorization: `Bearer ${hfToken}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        body: JSON.stringify({
+          model: "meta-llama/Llama-3.2-3B-Instruct",
+          messages: [
+            {
+              role: "system",
+              content: `You are ASTRA, a high-fidelity mission assistant for the Stellaris Dashboard.
+              
+              STRICT OPERATIONAL DIRECTIVE:
+              1. You ONLY have access to the telemetry and broadcast data provided.
+              2. If a user asks a question that CANNOT be answered using the provided data, you MUST state that the data is not available in the current relay.
+              3. Do NOT invent missions, astronauts, or locations.
+              4. Maintain a technical, slightly futuristic "mission control" tone.
+              5. Always provide specific numbers (latitude, velocity, etc.) if available.
+              
+              DASHBOARD DATA:
+              ${JSON.stringify(context)}`
+            },
+            ...messages
+          ],
+          max_tokens: 500,
+        }),
+      }
+    );
 
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || "Hugging Face API error");
+    }
 
-    res.json({
-      choices: [{ message: { content: responseText } }]
-    });
+    const result = await response.json();
+    res.json(result);
   } catch (error) {
     console.error("AI processing error:", error);
     res.status(500).json({ error: "Mission control communication failure." });
