@@ -82,7 +82,7 @@ app.post("/api/chat", async (req, res) => {
         },
         method: "POST",
         body: JSON.stringify({
-          model: "meta-llama/Llama-3.2-3B-Instruct",
+          model: "Qwen/Qwen3-0.6B:featherless-ai",
           messages: [
             {
               role: "system",
